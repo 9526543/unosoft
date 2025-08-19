@@ -4,4 +4,5 @@
 
 4. Проверить на сервере с openldap
    ldapsearch -x -b "dc=unosoft" -D "cn=admin,dc=unosoft" -w adminpassword
-5. Результат на ![скриншоте](images/snapshot.png)
+5. Результат на скриншоте
+   ![скриншот](images/snapshot.png)
