@@ -1,0 +1,87 @@
+---
+- name: Deploy and configure OpenLDAP server
+  hosts: all
+  become: yes
+  vars:
+    ldap_admin_password: "adminpassword"
+    ldap_domain: "Unosoft"
+    ldap_org: "Unosoft"
+    ldap_users:
+      - { cn: "user1", uid: "user1", givenname: "Ivan", sn: "Ivanov", password: "user1pass" }
+      - { cn: "user2", uid: "user2", givenname: "Petr", sn: "Petrov", password: "user2pass" }
+    ldap_groups:
+      - { cn: "Admin", description: "Admins group" }
+      - { cn: "Developer", description: "Developers group" }
+
+  tasks:
+    - name: Install OpenLDAP server and utilities
+      apt:
+        name:
+          - slapd
+          - ldap-utils
+          - ldapscripts
+        state: present
+        update_cache: yes
+
+    - name: Set admin password and domain
+      debconf:
+        name: slapd
+        question: "{{ item.question }}"
+        value: "{{ item.value }}"
+        vtype: "{{ item.vtype }}"
+      with_items:
+        - { question: 'slapd/domain', value: '{{ ldap_domain }}', vtype: 'string' }
+        - { question: 'slapd/password1', value: '{{ ldap_admin_password }}', vtype: 'password' }
+        - { question: 'slapd/password2', value: '{{ ldap_admin_password }}', vtype: 'password' }
+
+    - name: Reconfigure slapd
+      command: dpkg-reconfigure -f noninteractive slapd
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+        LC_ALL: C
+
+    - name: Check if base DN exists
+      command: ldapsearch -x -b "dc={{ ldap_domain }}" -D "cn=admin,dc={{ ldap_domain }}" -w "{{ ldap_admin_password }}" -LLL "objectClass=*" dn
+      register: ldap_check
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Create ou=people
+      shell: |
+        echo "dn: ou=people,dc={{ ldap_domain }}
+        objectClass: top
+        objectClass: organizationalUnit
+        ou: people" | ldapadd -x -D cn=admin,dc={{ ldap_domain }} -w {{ ldap_admin_password }}
+      ignore_errors: yes
+
+    - name: Create ou=groups
+      shell: |
+        echo "dn: ou=groups,dc={{ ldap_domain }}
+        objectClass: top
+        objectClass: organizationalUnit
+        ou: groups" | ldapadd -x -D cn=admin,dc={{ ldap_domain }} -w {{ ldap_admin_password }}
+      ignore_errors: yes
+
+    - name: Add users
+      shell: |
+        echo "dn: uid={{ item.uid }},ou=people,dc={{ ldap_domain }}
+        objectClass: top
+        objectClass: person
+        objectClass: organizationalPerson
+        objectClass: inetOrgPerson
+        cn: {{ item.cn }}
+        givenName: {{ item.givenname }}
+        sn: {{ item.sn }}
+        uid: {{ item.uid }}
+        userPassword: {{ item.password }}" | ldapadd -x -D cn=admin,dc={{ ldap_domain }} -w {{ ldap_admin_password }}
+      with_items: "{{ ldap_users }}"
+
+    - name: Add groups
+      shell: |
+        echo "dn: cn={{ item.cn }},ou=groups,dc={{ ldap_domain }}
+        objectClass: top
+        objectClass: groupOfNames
+        cn: {{ item.cn }}
+        description: {{ item.description }}
+        member: uid={{ ldap_users[0].uid }},ou=people,dc={{ ldap_domain }}" | ldapadd -x -D cn=admin,dc={{ ldap_domain }} -w {{ ldap_admin_password }}
+      with_items: "{{ ldap_groups }}"

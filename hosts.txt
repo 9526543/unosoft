@@ -1,0 +1,2 @@
+[openldap_servers]
+ubuntu2404lts ansible_host=192.168.1.109 ansible_user=serge
